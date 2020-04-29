@@ -21,30 +21,46 @@ groundfish <- readOGR(".",layer = "Groundfish_Statistical_Areas_2001") #then rea
 groundfish <- spTransform(groundfish, CRS("+proj=longlat +datum=WGS84 +no_defs")) #put it into right form
 
 ###THIS is awesome; reduces data from 83 mb to 9.6, way easier to load and navigate around
-simpleground <- ms_simplify(groundfish)
+simpleground <- ms_simplify(groundfish, keep = 0.001) #might be worth saving these as shape files and doing away with other ones because they're so much smaller
+#trying to save 
+write_rds(simpleground, path = file.path(".", "simpleground.rds"))
+simpleground <- read_rds(file.path("simpleground.rds"))
+
+states %>%
+  leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = sg_saved, 
+              popup = paste("STAT Area:", sg_saved@data$STAT_AREA))
 
 ###PLOTTING SAMPLING TRANSECTS
 #gets each trip for each vessel for each day in a given year
 colnames(data)[9] <- "STAT_AREA"
 #this dataset can be used for plotting th individual sampling trips and their data
 x <- data %>%
-  filter(year == 2015) %>%
-  group_by(julian_day, trip_no, set,Vessel, start_lat, start_lon, end_lat, end_lon, STAT_AREA) %>%
+  #filter(year == 2006) %>%
+  group_by(julian_day, date, year, trip_no, set,Vessel, start_lat, start_lon, end_lat, end_lon, STAT_AREA) %>%
   summarize(sablefish = sum(hooks_sablefish))
-
+x <- x %>%
+  filter(year == 2006)
 #puts data in format for points_to_line function  
 print(nrow(x))
 y <- data.frame(linenumber = c(1:nrow(x), 1:nrow(x)),
                     lat = c(x$start_lat, x$end_lat),
-                    long = c(x$start_lon, x$end_lon))
+                    long = c(x$start_lon, x$end_lon),
+                year = c(x$year,x$year))
 # mydf3 <- head(mydf2)
 # mydf3 <- mydf3 %>%
 #   mutate(group = c(1,2,3,4,5,6)) #c("A", "A", "B","B", "C","C")
-
-v_lines2 <- points_to_line(data = y, 
+# y <- y %>%
+#   filter(year == 2006)
+v_lines3 <- points_to_line(data = y, 
                           long = "long", 
                           lat = "lat", 
                           id_field = "linenumber")
+states %>%
+  leaflet() %>%
+  addTiles() %>%
+  addPolylines(v_lines3)
 ##Combining datasets to make chloropleth
 ###makign chlorpleth
 #first, make data right types to combine data with groundfish spatial data
@@ -67,15 +83,15 @@ xx <- xx %>%
 test@data <- full_join(test@data,
                        xx,
                        by = "STAT_AREA")
-View(test@data)
+#View(test@data)
 
 #determining bin sizes for sablefish
 
 test@data %>%
   ggplot(aes(x = total_hooks_sablefish)) +
-  geom_histogram(bins = 100) +
-  xlim(0, 5)
-bins <- c(0, 500, 1000, 1500, 2000, 2500, 3000, 3500, Inf)#what are the cutoffs for coloring these? anything between these ranges will be one color or another color
+  geom_histogram(bins = 100)
+
+bins <- c(0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, Inf)#what are the cutoffs for coloring these? anything between these ranges will be one color or another color
 colors <-colorBin(palette = "YlGn", #whats the gradient I want
                   domain = test@data$total_hooks_sablefish, #this is the thing I'm basing my color gradient off of
                   bins = bins)
@@ -102,11 +118,14 @@ colors <-colorBin(palette = "YlGn", #whats the gradient I want
 states %>%
   leaflet()%>%
   addTiles() %>%
-  setView(-134.5, 57, 7) %>% 
+  setView(-134.5, 57, 7.5) %>% 
   addMarkers(clusterOptions = markerClusterOptions(),
              ~x$start_lon,
              ~x$start_lat, 
-             popup = paste("Julian day:", x$julian_day, "<br>","Sablefish surveyed:",x$sablefish)) %>%
+             popup = paste("Date:", x$date, "<br>",
+                           "Vessel:", x$Vessel, "<br>",
+                           "Set:", x$set,"<br>",
+                           "Sablefish surveyed:",x$sablefish)) %>%
   addPolygons(data = test,
               fillColor = ~colors(test@data$total_hooks_sablefish),
               weight = 2, #make darks darker and lights lighter
@@ -114,7 +133,8 @@ states %>%
               color = "white",
               dashArray = "3",
               fillOpacity = 0.7,
-              popup = paste("STAT Area:", test@data$STAT_AREA, "<br>", "Sablefish Surveyed:", test@data$total_hooks_sablefish)) %>%
+              popup = paste("STAT Area:", test@data$STAT_AREA, "<br>", 
+                            "Sablefish Surveyed:", test@data$total_hooks_sablefish)) %>%
   addPolylines(data = v_lines2)
 
 #next: make summary of total sablefish surveyed in each stat_area then have it display as part of the popup, then make it part of the chloropleth
