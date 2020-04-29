@@ -26,7 +26,7 @@ colnames(data)[9] <- "STAT_AREA"
 data$STAT_AREA <- as.factor(data$STAT_AREA)
 
 #getting lat longs, number of sablefish for each trip
-x <- data %>%
+newdata <- data %>%
   group_by(julian_day, date, year, trip_no, set,Vessel, start_lat, start_lon, end_lat, end_lon, STAT_AREA) %>%
   summarize(sablefish = sum(hooks_sablefish))
 
@@ -63,9 +63,11 @@ server <- function(input, output) {
   # sablefishdata <- reactive(data %>%
   #                           na.omit() %>%
   #                            filter(year == input$slider1))
-  x <- reactive(data %>%
+  x <- reactive(newdata %>%
     filter(year == input$slider1) 
     )
+  #Warning: Error in UseMethod: no applicable method for 'filter_' applied to an object of class "c('reactiveExpr', 'reactive')"
+  #solved because I waas says x <- reactive(x) ie referring to itself, but now I'm using newdata
   
   #getting polylines ready
   y <- reactive(data.frame(linenumber = c(1:nrow(x()), 1:nrow(x())),
@@ -96,15 +98,15 @@ server <- function(input, output) {
                    popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>"
                                  #"Sablefish Surveyed:", simpleground@data$total_hooks_sablefish
                                  )) %>%
-       addPolylines(data = v_lines2())
-       # # addMarkers(clusterOptions = markerClusterOptions(),
-       # #            ~x()$start_lon,
-       # #            ~x()$start_lat, 
-       # #            popup = paste("Date:", x()$date, "<br>",
-       # #                          "Vessel:", x()$Vessel, "<br>",
-       # #                          "Set:", x()$set,"<br>",
-       # #                          "Sablefish surveyed:",x()$sablefish)) #%>%
-       # %>%
+       addPolylines(data = v_lines2()) %>%
+       addMarkers(clusterOptions = markerClusterOptions(),
+                  x()$start_lon,
+                  x()$start_lat,
+                  popup = paste("Date:", x()$date, "<br>",
+                                "Vessel:", x()$Vessel, "<br>",
+                                "Set:", x()$set,"<br>",
+                                "Sablefish surveyed:",x()$sablefish)
+                  )
        
    })
    
