@@ -64,7 +64,7 @@ ui <- navbarPage("SEAK Sablefish Catch per Unit Effort", id="nav",
                          
                          sliderInput("slider1",
                                      "Choose a year:",
-                                     min = 1997,
+                                     min = 1990,
                                      max = 2018,
                                      value = 2015,
                                      sep = ""),
@@ -124,6 +124,7 @@ server <- function(input, output) {
   })
  
   
+  
   ###plotting map
 
    output$map1 <- renderLeaflet({
@@ -157,12 +158,10 @@ server <- function(input, output) {
                                   "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
                     )) %>%
        addPolylines(data = v_lines2()) #puts polylines on top of the polygons
-       
-       
-
 
    })
-  
+   
+   
    
    observe({
   #this has its own observe instance because they're two different inputs you can change right now: slider1 and colors
