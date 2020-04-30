@@ -11,6 +11,9 @@ library(scales)
 library(rmapshaper)
 library(RColorBrewer)
 
+##TO DO: 
+#make it so map doesn't redraw every time I change the year
+
 data <- read_csv("llsrv_cpue_1985_2018.csv")
 ###Points to line function
 source("points_to_line_function.R")
@@ -43,12 +46,6 @@ areacatch <- areacatch %>%
   group_by(STAT_AREA, year) %>%
   summarise(total_hooks_sablefish = sum(sablefish))
 
-# areacatch <- full_join(simpleground@data,
-#                    areacatch,
-#                    by = "STAT_AREA")
-
-
-
 
 ui <- navbarPage("SEAK Sablefish Catch per Unit Effort", id="nav",
            
@@ -72,8 +69,9 @@ ui <- navbarPage("SEAK Sablefish Catch per Unit Effort", id="nav",
                                      value = 2015,
                                      sep = ""),
                          
-                         selectInput("colors", "Color Scheme", selected = "YlGn",
+                         selectInput("colors", "Polygon Color Scheme", selected = "YlGn",
                                      rownames(subset(brewer.pal.info, category %in% c("seq", "div"))))
+                         
            )
            ),
            tabPanel("Data Explorer",
@@ -122,7 +120,7 @@ server <- function(input, output) {
 
   #Color pallette selection
   colorpal <- reactive({
-    colorNumeric(input$colors, areacatch2()$total_hooks_sablefish)
+    colorNumeric(input$colors, areacatch2()$total_hooks_sablefish) #use a inputted color pallette based off total hooks
   })
  
   
@@ -133,38 +131,19 @@ server <- function(input, output) {
      states %>%
        leaflet()%>%
        addTiles() %>%
-       setView(-134.5, 57, 7.5) %>% 
-       addPolygons(data = simpleground,
-                   #fillColor = ~colors(areacatch2()$total_hooks_sablefish),
-                   weight = 2, #make darks darker and lights lighter
-                   opacity = 1,
-                   color = "white",
-                   dashArray = "3",
-                   fillOpacity = 0.7,
-                   popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>",
-                                 "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
-                                 )) %>%
-       addPolylines(data = v_lines2()) %>%
-       addMarkers(clusterOptions = markerClusterOptions(),
-                  x()$start_lon,
-                  x()$start_lat,
-                  popup = paste("Date:", x()$date, "<br>",
-                                "Vessel:", x()$Vessel, "<br>",
-                                "Set:", x()$set,"<br>",
-                                "Sablefish surveyed:",x()$sablefish))
-       
+       setView(-134.5, 57, 7.5) 
    })
    
    # Incremental changes to the map (in this case, replacing the
    # vertical lines and markers when a new year is chosen) should be performed in
    # an observer. Each independent set of things that can change
    # should be managed in its own observer.
-   # dynamically change color scheme to what you want
-   #Right now, v_lines are under these; so maybe make another observable event to where you can select v_line color and make it come after the polygons
-   #maybe do another for markers too
+   
+   # dynamically change color scheme to what you want and it won't redraw the whole map, only the colors will change 
+   
    observe({
      pal <- colorpal()
-
+      
      leafletProxy("map1") %>%
         clearShapes() %>%
         addPolygons(data = simpleground,
@@ -176,34 +155,44 @@ server <- function(input, output) {
                     fillOpacity = 0.7,
                     popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>",
                                   "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
-                    ))
+                    )) %>%
+       addPolylines(data = v_lines2()) #puts polylines on top of the polygons
+       
+       
 
 
    })
+  
    
-   # observe({
-   #   
-   #   
-   #   leafletProxy("map1") %>%
-   #     clearMarkers() %>%
-   #     addMarkers(clusterOptions = markerClusterOptions(),
-   #                x()$start_lon,
-   #                x()$start_lat,
-   #                popup = paste("Date:", x()$date, "<br>",
-   #                              "Vessel:", x()$Vessel, "<br>",
-   #                              "Set:", x()$set,"<br>",
-   #                              "Sablefish surveyed:",x()$sablefish))
-   #   
-   #   
-   # })
+   observe({
+  #this has its own observe instance because they're two different inputs you can change right now: slider1 and colors
+    #this makes it so that each time you change the year, map1 won't redraw and you can stay zoomed in and exploring the data
+     leafletProxy("map1") %>%
+       #clearing markers 
+       clearMarkerClusters() %>%
+       addMarkers(clusterOptions = markerClusterOptions(),
+                  x()$start_lon,
+                  x()$start_lat,
+                  popup = paste("Date:", x()$date, "<br>",
+                                "Vessel:", x()$Vessel, "<br>",
+                                "Set:", x()$set,"<br>",
+                                "Sablefish surveyed:",x()$sablefish)
+                  #color = ~x()$Vessel
+                  )
+   })
+   
    
    #plot in the data explore tab
    output$plot1 <- renderPlot({
      areacatch2() %>%
        filter(STAT_AREA == c(345731) | STAT_AREA == 345701 | STAT_AREA == 345631 | STAT_AREA == 345603) %>%
        ggplot(aes(x = STAT_AREA, y = total_hooks_sablefish)) +
-       geom_bar(stat = "identity") +
+       geom_bar(stat = "identity") + #could try and fill by vessel; could be better displaying x() instead of areacatch
+       ggtitle(paste(as.character(input$slider1), "Sablefish Hooks by STAT Area")) + 
+       xlab("STAT Area") + ylab("Total Number of Sablefish Hooks") +
        theme_classic(base_size = 15) 
+     #Warning: Error in +: invalid argument to unary operator
+     #solved because 
    })
    
    
