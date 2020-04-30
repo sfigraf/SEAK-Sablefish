@@ -1,5 +1,6 @@
 
-#
+#no applicable method for 'geojson_json' applied to an object of class "c('geofeaturecollection', 'geojson', 'geo_json', 'json')"
+#solved by clearing global environment; too much noise
 library(tidyverse)
 library(data.table)
 library(geojsonio)
@@ -16,9 +17,7 @@ source("points_to_line_function.R")
 
 #Shp files
 states <- geojson_json(states, geometry = "polygon", group = "group")
-#groundfish <- readOGR(".",layer = "Groundfish_Statistical_Areas_2001") #then read it out
-#groundfish <- spTransform(groundfish, CRS("+proj=longlat +datum=WGS84 +no_defs")) #put it into right form
-#simpleground <- ms_simplify(groundfish, keep = 0.001)
+
 simpleground <- read_rds(file.path("simpleground.rds")) #a smaller version of the groundfish .shp files that loads quicker than groundfish 
 
 ###Data wrangling
@@ -34,10 +33,6 @@ newdata <- data %>%
 #getting catch per State area
 areacatch <- newdata #duplicate data 
 
-#colnames(data)[9] <- "STAT_AREA"
-#columns we want to add to spatial dataframe
-# selected <- data %>%
-#   select(year, julian_day, STAT_AREA, start_lat, start_lon, end_lat, end_lon,hooks_sablefish)
 
 areacatch$STAT_AREA <- as.factor(areacatch$STAT_AREA)
 #data$STAT_AREA <- as.factor(data$STAT_AREA)
@@ -48,12 +43,10 @@ areacatch <- areacatch %>%
   group_by(STAT_AREA, year) %>%
   summarise(total_hooks_sablefish = sum(sablefish))
 
-areacatch <- full_join(simpleground@data,
-                   areacatch,
-                   by = "STAT_AREA")
+# areacatch <- full_join(simpleground@data,
+#                    areacatch,
+#                    by = "STAT_AREA")
 
-# xxx <- areacatch %>%
-#   filter(year == 2004| is.na(year))
 
 
 
@@ -90,87 +83,67 @@ ui <- navbarPage("SEAK Sablefish Catch per Unit Effort", id="nav",
            
         )
 
-# Define UI
-# ui <- fluidPage(
-#    
-#    # Application title
-#    titlePanel("SEAK Sablefish Catch per Unit Effort"),
-#    
-#    # Sidebar with a slider input for number of bins 
-#    sidebarLayout(
-#       sidebarPanel(
-#          sliderInput("slider1",
-#                      "Choose a year:",
-#                      min = 1997,
-#                      max = 2018,
-#                      value = 2000,
-#                      sep = "")
-#       ),
-#       
-#       # Show a plot of the generated distribution
-#       mainPanel(
-#          # plotOutput("plot1"),
-#          # plotOutput("plot2"), 
-#          leafletOutput("map1")
-#       )
-#    )
-# )
 
 # Define server logic
 server <- function(input, output) {
    
-  # sablefishdata <- reactive(data %>%
-  #                           na.omit() %>%
-  #                            filter(year == input$slider1))
+  #x now has every sampling trip for a selected year
   x <- reactive(newdata %>%
     filter(year == input$slider1) 
     )
   #Warning: Error in UseMethod: no applicable method for 'filter_' applied to an object of class "c('reactiveExpr', 'reactive')"
   #solved because I waas says x <- reactive(x) ie referring to itself, but now I'm using newdata
   
-  #getting polylines ready
+  #getting polylines ready by preparing data to feed into pointstoline() function
   y <- reactive(data.frame(linenumber = c(1:nrow(x()), 1:nrow(x())),
                   lat = c(x()$start_lat, x()$end_lat),
                   long = c(x()$start_lon, x()$end_lon)))
   #vlines2 are polylines to be plotted; aka the transects
+  #points_to_line() ensures that the points won't connect to each other when plotted
   v_lines2 <- reactive(points_to_line(data = y(), 
                              long = "long", 
                              lat = "lat", 
                              id_field = "linenumber"))
   
-  areacatch2 <- reactive(areacatch %>%
-                           filter(year == input$slider1 | is.na(year)))
+  #need to filter for year before doing a full join, otherwise the total_sablefish value for polygon 345731 will get assigned to 345706 polygon (no idea why)
+  areacatch_ <- reactive(areacatch %>%
+                           filter(year == input$slider1 )) #| is.na(year))
+  
+  # Warning: Error in : evaluation nested too deeply: infinite recursion / options(expressions=)?
+  #   Error in mapply(function(call, srcref) { : 
+  #       zero-length inputs cannot be mixed with those of non-zero length
+  
+  #solved by changing variable names. You always need to rename your reactive data something different than the data inside the reactive expression
+  areacatch2 <- reactive(full_join(simpleground@data,
+                         areacatch_(),
+                         by = "STAT_AREA"))
+  
+  
 
-  #Colors
+  #Color pallette selection
   colorpal <- reactive({
     colorNumeric(input$colors, areacatch2()$total_hooks_sablefish)
   })
  
+  
+  ###plotting map
 
-  # bins <- c(0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, Inf)#what are the cutoffs for coloring these? anything between these ranges will be one color or another color
-  # colors <-colorBin(palette = "YlGn", #whats the gradient I want
-  #                   domain = areacatch2()$total_hooks_sablefish, #this is the thing I'm basing my color gradient off of
-  #                   bins = bins)
-  
-  ###making chloropleth
-  
-  
    output$map1 <- renderLeaflet({
-     ###Rendering leaflet for only the parts of the map that are not dynamic; ie, the shp files. 
+     ###Rendering leaflet  
      states %>%
        leaflet()%>%
        addTiles() %>%
        setView(-134.5, 57, 7.5) %>% 
-       # addPolygons(data = simpleground,
-       #             #fillColor = ~colors(areacatch2()$total_hooks_sablefish),
-       #             weight = 2, #make darks darker and lights lighter
-       #             opacity = 1,
-       #             color = "white",
-       #             dashArray = "3",
-       #             fillOpacity = 0.7,
-       #             popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>",
-       #                           "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
-       #                           )) %>%
+       addPolygons(data = simpleground,
+                   #fillColor = ~colors(areacatch2()$total_hooks_sablefish),
+                   weight = 2, #make darks darker and lights lighter
+                   opacity = 1,
+                   color = "white",
+                   dashArray = "3",
+                   fillOpacity = 0.7,
+                   popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>",
+                                 "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
+                                 )) %>%
        addPolylines(data = v_lines2()) %>%
        addMarkers(clusterOptions = markerClusterOptions(),
                   x()$start_lon,
@@ -178,8 +151,7 @@ server <- function(input, output) {
                   popup = paste("Date:", x()$date, "<br>",
                                 "Vessel:", x()$Vessel, "<br>",
                                 "Set:", x()$set,"<br>",
-                                "Sablefish surveyed:",x()$sablefish)
-                  )
+                                "Sablefish surveyed:",x()$sablefish))
        
    })
    
@@ -187,7 +159,9 @@ server <- function(input, output) {
    # vertical lines and markers when a new year is chosen) should be performed in
    # an observer. Each independent set of things that can change
    # should be managed in its own observer.
-   #maybe just start out with leaflet proxy for color scheme...
+   # dynamically change color scheme to what you want
+   #Right now, v_lines are under these; so maybe make another observable event to where you can select v_line color and make it come after the polygons
+   #maybe do another for markers too
    observe({
      pal <- colorpal()
 
@@ -195,7 +169,7 @@ server <- function(input, output) {
         clearShapes() %>%
         addPolygons(data = simpleground,
                     fillColor = ~pal(areacatch2()$total_hooks_sablefish),
-                    weight = 2, #make darks darker and lights lighter
+                    #weight = 2, #make darks darker and lights lighter
                     opacity = 1,
                     color = "white",
                     dashArray = "3",
@@ -203,10 +177,27 @@ server <- function(input, output) {
                     popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>",
                                   "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
                     ))
-                    
+
 
    })
    
+   # observe({
+   #   
+   #   
+   #   leafletProxy("map1") %>%
+   #     clearMarkers() %>%
+   #     addMarkers(clusterOptions = markerClusterOptions(),
+   #                x()$start_lon,
+   #                x()$start_lat,
+   #                popup = paste("Date:", x()$date, "<br>",
+   #                              "Vessel:", x()$Vessel, "<br>",
+   #                              "Set:", x()$set,"<br>",
+   #                              "Sablefish surveyed:",x()$sablefish))
+   #   
+   #   
+   # })
+   
+   #plot in the data explore tab
    output$plot1 <- renderPlot({
      areacatch2() %>%
        filter(STAT_AREA == c(345731) | STAT_AREA == 345701 | STAT_AREA == 345631 | STAT_AREA == 345603) %>%
@@ -214,19 +205,10 @@ server <- function(input, output) {
        geom_bar(stat = "identity") +
        theme_classic(base_size = 15) 
    })
-   # 
-   # output$plot2 <- renderPlot({
-   #   data %>%
-   #     na.omit() %>%
-   #     group_by(year) %>%
-   #     summarize(sablefish_surveyed = sum(hooks_sablefish)) %>%
-   #     ggplot(aes(x = year, y = sablefish_surveyed)) +
-   #     geom_bar(stat = "identity") +
-   #     theme_classic(base_size = 15) 
-   # })
+   
+   
 }
 
-#if i can get it so the Stat area will be highlighted if you run your mouse over the 
 # Run the application 
 shinyApp(ui = ui, server = server)
 
