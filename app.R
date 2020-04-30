@@ -8,6 +8,7 @@ library(shiny)
 library(leaflet)
 library(scales)
 library(rmapshaper)
+library(RColorBrewer)
 
 data <- read_csv("llsrv_cpue_1985_2018.csv")
 ###Points to line function
@@ -30,34 +31,92 @@ newdata <- data %>%
   group_by(julian_day, date, year, trip_no, set,Vessel, start_lat, start_lon, end_lat, end_lon, STAT_AREA) %>%
   summarize(sablefish = sum(hooks_sablefish))
 
+#getting catch per State area
+areacatch <- newdata #duplicate data 
+
+#colnames(data)[9] <- "STAT_AREA"
+#columns we want to add to spatial dataframe
+# selected <- data %>%
+#   select(year, julian_day, STAT_AREA, start_lat, start_lon, end_lat, end_lon,hooks_sablefish)
+
+areacatch$STAT_AREA <- as.factor(areacatch$STAT_AREA)
+#data$STAT_AREA <- as.factor(data$STAT_AREA)
+#changing NA sablefish surveyed to 0; ok but a bit imprecise
+#areacatch[is.na(areacatch["sablefish"])] <- 0
+areacatch <- areacatch %>%
+  mutate(sablefish = if_else(is.na(sablefish), 0, sablefish)) %>%
+  group_by(STAT_AREA, year) %>%
+  summarise(total_hooks_sablefish = sum(sablefish))
+
+areacatch <- full_join(simpleground@data,
+                   areacatch,
+                   by = "STAT_AREA")
+
+# xxx <- areacatch %>%
+#   filter(year == 2004| is.na(year))
+
+
+
+ui <- navbarPage("SEAK Sablefish Catch per Unit Effort", id="nav",
+           
+           tabPanel("Interactive map",
+                    div(class="outer"),
+                    
+           
+           leafletOutput("map1", width = "100%", height = 1000),
+          
+           
+           
+           
+           absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
+                         draggable = TRUE, top = 60, left = "auto", right = 20, bottom = "auto",
+                         width = 330, height = "auto",
+                         
+                         sliderInput("slider1",
+                                     "Choose a year:",
+                                     min = 1997,
+                                     max = 2018,
+                                     value = 2015,
+                                     sep = ""),
+                         
+                         selectInput("colors", "Color Scheme", selected = "YlGn",
+                                     rownames(subset(brewer.pal.info, category %in% c("seq", "div"))))
+           )
+           ),
+           tabPanel("Data Explorer",
+                    plotOutput("plot1")
+                    
+                    )
+           
+        )
 
 # Define UI
-ui <- fluidPage(
-   
-   # Application title
-   titlePanel("SEAK Sablefish Catch per Unit Effort"),
-   
-   # Sidebar with a slider input for number of bins 
-   sidebarLayout(
-      sidebarPanel(
-         sliderInput("slider1",
-                     "Choose a year:",
-                     min = 1997,
-                     max = 2018,
-                     value = 2000,
-                     sep = "")
-      ),
-      
-      # Show a plot of the generated distribution
-      mainPanel(
-         # plotOutput("plot1"),
-         # plotOutput("plot2"), 
-         leafletOutput("map1")
-      )
-   )
-)
+# ui <- fluidPage(
+#    
+#    # Application title
+#    titlePanel("SEAK Sablefish Catch per Unit Effort"),
+#    
+#    # Sidebar with a slider input for number of bins 
+#    sidebarLayout(
+#       sidebarPanel(
+#          sliderInput("slider1",
+#                      "Choose a year:",
+#                      min = 1997,
+#                      max = 2018,
+#                      value = 2000,
+#                      sep = "")
+#       ),
+#       
+#       # Show a plot of the generated distribution
+#       mainPanel(
+#          # plotOutput("plot1"),
+#          # plotOutput("plot2"), 
+#          leafletOutput("map1")
+#       )
+#    )
+# )
 
-# Define server logic required to draw a histogram
+# Define server logic
 server <- function(input, output) {
    
   # sablefishdata <- reactive(data %>%
@@ -79,6 +138,20 @@ server <- function(input, output) {
                              lat = "lat", 
                              id_field = "linenumber"))
   
+  areacatch2 <- reactive(areacatch %>%
+                           filter(year == input$slider1 | is.na(year)))
+
+  #Colors
+  colorpal <- reactive({
+    colorNumeric(input$colors, areacatch2()$total_hooks_sablefish)
+  })
+ 
+
+  # bins <- c(0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, Inf)#what are the cutoffs for coloring these? anything between these ranges will be one color or another color
+  # colors <-colorBin(palette = "YlGn", #whats the gradient I want
+  #                   domain = areacatch2()$total_hooks_sablefish, #this is the thing I'm basing my color gradient off of
+  #                   bins = bins)
+  
   ###making chloropleth
   
   
@@ -88,16 +161,16 @@ server <- function(input, output) {
        leaflet()%>%
        addTiles() %>%
        setView(-134.5, 57, 7.5) %>% 
-       addPolygons(data = simpleground,
-                   #fillColor = ~colors(test@data$total_hooks_sablefish),
-                   weight = 2, #make darks darker and lights lighter
-                   opacity = 1,
-                   color = "white",
-                   dashArray = "3",
-                   fillOpacity = 0.7,
-                   popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>"
-                                 #"Sablefish Surveyed:", simpleground@data$total_hooks_sablefish
-                                 )) %>%
+       # addPolygons(data = simpleground,
+       #             #fillColor = ~colors(areacatch2()$total_hooks_sablefish),
+       #             weight = 2, #make darks darker and lights lighter
+       #             opacity = 1,
+       #             color = "white",
+       #             dashArray = "3",
+       #             fillOpacity = 0.7,
+       #             popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>",
+       #                           "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
+       #                           )) %>%
        addPolylines(data = v_lines2()) %>%
        addMarkers(clusterOptions = markerClusterOptions(),
                   x()$start_lon,
@@ -114,25 +187,33 @@ server <- function(input, output) {
    # vertical lines and markers when a new year is chosen) should be performed in
    # an observer. Each independent set of things that can change
    # should be managed in its own observer.
-   # observe({
-   #   #pal <- colorpal()
-   #    
-   #   leafletProxy("map1") %>%
-   #      clearShapes()
-   #     # addPolylines(data = v_lines2())
-   # 
-   # })
+   #maybe just start out with leaflet proxy for color scheme...
+   observe({
+     pal <- colorpal()
+
+     leafletProxy("map1") %>%
+        clearShapes() %>%
+        addPolygons(data = simpleground,
+                    fillColor = ~pal(areacatch2()$total_hooks_sablefish),
+                    weight = 2, #make darks darker and lights lighter
+                    opacity = 1,
+                    color = "white",
+                    dashArray = "3",
+                    fillOpacity = 0.7,
+                    popup = paste("STAT Area:", simpleground@data$STAT_AREA, "<br>",
+                                  "Sablefish Surveyed:", areacatch2()$total_hooks_sablefish
+                    ))
+                    
+
+   })
    
-   # output$plot1 <- renderPlot({
-   #   sablefishdata() %>%
-   #     ggplot(aes(x = julian_day, y = hooks_sablefish)) +
-   #     geom_bar(stat = "identity", aes(fill = Stat)) +
-   #     theme_classic(base_size = 15) + 
-   #     scale_x_continuous(breaks = pretty_breaks()) +
-   #     scale_color_manual(values = c("red",
-   #                                   "green",
-   #                                   "blue"))
-   # })
+   output$plot1 <- renderPlot({
+     areacatch2() %>%
+       filter(STAT_AREA == c(345731) | STAT_AREA == 345701 | STAT_AREA == 345631 | STAT_AREA == 345603) %>%
+       ggplot(aes(x = STAT_AREA, y = total_hooks_sablefish)) +
+       geom_bar(stat = "identity") +
+       theme_classic(base_size = 15) 
+   })
    # 
    # output$plot2 <- renderPlot({
    #   data %>%
